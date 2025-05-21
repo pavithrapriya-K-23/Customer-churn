@@ -1,0 +1,149 @@
+# ========================================================
+# 📌 Predicting Customer Churn Using Machine Learning
+#     to Uncover Hidden Patterns
+# ========================================================
+
+# 📦 Import libraries
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from xgboost import XGBClassifier
+from sklearn.metrics import (accuracy_score, precision_score, recall_score,
+                             f1_score, roc_auc_score, confusion_matrix,
+                             classification_report, roc_curve)
+
+# 📥 Load dataset
+data = pd.read_csv("dataset_LCC.csv")
+# 📊 Quick info
+print(data.info())
+print(data.head())
+# ================================================
+# 📌 Data Preprocessing
+# ================================================
+# Convert 'TotalCharges' to numeric
+data['TotalCharges'] = pd.to_numeric(data['TotalCharges'], errors='coerce')
+data['TotalCharges'].fillna(data['TotalCharges'].median(), inplace=True)
+# Label Encoding for binary categorical variables
+le = LabelEncoder()
+binary_cols = ['Gender', 'Partner', 'Dependents', 'TechSupport', 'StreamingTV',
+               'OnlineBackup', 'SeniorCitizen', 'Churn']
+for col in binary_cols:
+    data[col] = le.fit_transform(data[col])
+
+# One-Hot Encoding for multi-class variables
+data = pd.get_dummies(data, columns=['Contract', 'PaymentMethod', 'InternetService'], drop_first=True)
+
+# Feature & target selection
+X = data.drop(['CustomerID', 'Churn'], axis=1)
+y = data['Churn']
+
+# Train-Test split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Scaling numerical columns
+scaler = StandardScaler()
+num_cols = ['Age', 'Tenure', 'MonthlyCharges', 'TotalCharges']
+X_train[num_cols] = scaler.fit_transform(X_train[num_cols])
+X_test[num_cols] = scaler.transform(X_test[num_cols])
+
+# ================================================
+# 📌 Exploratory Data Analysis (EDA)
+# ================================================
+
+# Churn distribution
+sns.countplot(x='Churn', data=data)
+plt.title("Churn Distribution")
+plt.show()
+
+# Correlation heatmap
+plt.figure(figsize=(12,8))
+numeric_data = data.select_dtypes(include=['int64', 'float64'])
+sns.heatmap(numeric_data.corr(), annot=True, cmap='coolwarm')
+plt.title("Correlation Heatmap")
+plt.show()
+
+# ================================================
+# 📌 Model Building
+# ================================================
+
+# Logistic Regression
+lr = LogisticRegression(max_iter=1000)
+lr.fit(X_train, y_train)
+y_pred_lr = lr.predict(X_test)
+y_proba_lr = lr.predict_proba(X_test)[:, 1]
+
+# Random Forest Classifier
+rf = RandomForestClassifier(n_estimators=100, random_state=42)
+rf.fit(X_train, y_train)
+y_pred_rf = rf.predict(X_test)
+y_proba_rf = rf.predict_proba(X_test)[:, 1]
+
+# XGBoost Classifier
+xgb = XGBClassifier(use_label_encoder=False, eval_metric='logloss')
+xgb.fit(X_train, y_train)
+y_pred_xgb = xgb.predict(X_test)
+y_proba_xgb = xgb.predict_proba(X_test)[:, 1]
+
+# ================================================
+# 📌 Model Evaluation
+# ================================================
+
+def evaluate_model(name, y_true, y_pred, y_proba=None):
+    print(f"\n📊 {name} Performance:")
+    print("Accuracy :", round(accuracy_score(y_true, y_pred), 4))
+    print("Precision:", round(precision_score(y_true, y_pred), 4))
+    print("Recall   :", round(recall_score(y_true, y_pred), 4))
+    print("F1 Score :", round(f1_score(y_true, y_pred), 4))
+    print(classification_report(y_true, y_pred))
+
+    # Confusion Matrix
+    cm = confusion_matrix(y_true, y_pred)
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
+    plt.title(f"{name} Confusion Matrix")
+    plt.xlabel("Predicted")
+    plt.ylabel("Actual")
+    plt.show()
+
+    # ROC Curve
+    if y_proba is not None:
+        fpr, tpr, _ = roc_curve(y_true, y_proba)
+        auc_score = roc_auc_score(y_true, y_proba)
+        plt.plot(fpr, tpr, label=f"{name} (AUC = {auc_score:.2f})")
+        plt.plot([0,1], [0,1], 'r--')
+        plt.xlabel("False Positive Rate")
+        plt.ylabel("True Positive Rate")
+        plt.title(f"{name} ROC Curve")
+        plt.legend()
+        plt.show()
+
+# 📊 Evaluate all models
+evaluate_model("Logistic Regression", y_test, y_pred_lr, y_proba_lr)
+evaluate_model("Random Forest", y_test, y_pred_rf, y_proba_rf)
+evaluate_model("XGBoost", y_test, y_pred_xgb, y_proba_xgb)
+
+# 📊 Summary comparison
+results = pd.DataFrame({
+    'Model': ['Logistic Regression', 'Random Forest', 'XGBoost'],
+    'Accuracy': [accuracy_score(y_test, y_pred_lr),
+                 accuracy_score(y_test, y_pred_rf),
+                 accuracy_score(y_test, y_pred_xgb)],
+    'ROC-AUC': [roc_auc_score(y_test, y_proba_lr),
+                roc_auc_score(y_test, y_proba_rf),
+                roc_auc_score(y_test, y_proba_xgb)]
+})
+
+print(results)
+
+# ================================================
+# 📌 (Optional) Save Best Model
+# ================================================
+import joblib
+# Save XGBoost model
+joblib.dump(xgb, 'best_churn_model.pkl')
+print("\nModel saved successfully!")
